@@ -62,8 +62,12 @@ const ALLOWED: Record<string, readonly string[]> = {
   "@nap/sandbox": ["@nap/shared"],
   // Scene tools validate proposals against the contract, so the agent reads it.
   // Foundation-ward like shared, and pure: scene-spec has no I/O, no store and
-  // no model access for the agent to inherit by importing it.
-  "@nap/agent": ["@nap/shared", "@nap/scene-spec"],
+  // no model access for the agent to inherit by importing it. The procedural
+  // engine joins that list for one reason only: the desk tool must prove
+  // geometry (bounds, triangles, budget) before promoting it, and the engine
+  // is deterministic, side-effect-free, and Three-free at the boundary the
+  // tool touches — the same purity rationale, no I/O inherited.
+  "@nap/agent": ["@nap/shared", "@nap/scene-spec", "@nap/procedural"],
   "@nap/context": ["@nap/shared"],
   // Object storage sits beside the sandbox and the database as infrastructure: it holds a
   // project's bytes while nothing is running, and knows nothing about turns or projects.

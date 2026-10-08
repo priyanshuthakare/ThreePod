@@ -12,6 +12,7 @@
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^0.32.1",
     "@anthropic-ai/sdk": "0.116.0",
+    "@nap/procedural": "workspace:*",
     "@nap/scene-spec": "workspace:*",
     "@nap/shared": "workspace:*",
     "diff": "9.0.0",

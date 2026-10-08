@@ -18,6 +18,8 @@
  * the caller feeds the same text back as a tool result block on the next request.
  */
 
+import { buildDeskPlan, replanDesk } from "@nap/procedural/desk";
+import { promoteAssemblyToCreation } from "@nap/procedural/promotion";
 import type { SceneHead } from "@nap/scene-spec/fold";
 import type { AnySceneProposal } from "@nap/scene-spec/proposal";
 import { readSceneHead } from "@nap/scene-spec/scene-events";
@@ -29,8 +31,9 @@ import { shellQuote } from "@nap/shared/shell";
 import type { z } from "zod";
 import { inspectCommand } from "../safety/commands.ts";
 import { PROJECT_ROOT, TOOL_SCHEMAS } from "./definitions.ts";
+import type { ProposeDesk } from "./desk.ts";
 import { fileChange } from "./diff.ts";
-import { applySceneProposal, summarizeScene } from "./scene.ts";
+import { applySceneProposal, type ProposalApplication, summarizeScene } from "./scene.ts";
 
 /**
  * How much text one tool may put into a turn.
@@ -79,7 +82,7 @@ type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
 export async function executeTool(call: LLMToolCall, ctx: ToolContext): Promise<ToolOutcome> {
   const name = ToolNameSchema.safeParse(call.name);
   if (!name.success) {
-    // There is no honest `tool.call` to write: the event log accepts only the eight real
+    // There is no honest `tool.call` to write: the event log accepts only the nine real
     // names, and inventing one would put a tool in the history that does not exist.
     return {
       ok: false,
@@ -149,6 +152,10 @@ async function run(name: ToolName, call: LLMToolCall, ctx: ToolContext): Promise
     case "propose_scene_patch": {
       const args = TOOL_SCHEMAS.propose_scene_patch.safeParse(call.input);
       return args.success ? proposeScenePatch(args.data, ctx) : invalid(name, args.error);
+    }
+    case "propose_desk": {
+      const args = TOOL_SCHEMAS.propose_desk.safeParse(call.input);
+      return args.success ? proposeDesk(args.data, ctx) : invalid(name, args.error);
     }
   }
 }
@@ -336,12 +343,34 @@ async function proposeScenePatch(
   }
   const applied = applySceneProposal(effectiveHead(ctx, events), proposal);
   if (!applied.ok) {
-    emit(ctx, {
-      type: "scene.rejected",
-      payload: { code: applied.code, diagnostics: applied.diagnostics },
-    });
-    return { ok: false, output: applied.diagnostics };
+    return reportRejectedProposal(ctx, applied.code, applied.diagnostics);
   }
+  return reportAppliedProposal(
+    ctx,
+    applied,
+    "ops" in proposal ? `Applied ${proposal.ops.length} operation(s). ` : `Created scene. `,
+  );
+}
+
+/**
+ * The shared tail of every proposal-accepting tool: record the rejection, or
+ * advance the turn head, emit the update, and tell the model the full hash to
+ * cite next. Extracted so the desk tool reports exactly what the patch tool
+ * reports — one wording, one ordering, two callers.
+ */
+function reportRejectedProposal(ctx: ToolContext, code: string, diagnostics: string): ToolOutcome {
+  emit(ctx, {
+    type: "scene.rejected",
+    payload: { code, diagnostics },
+  });
+  return { ok: false, output: diagnostics };
+}
+
+function reportAppliedProposal(
+  ctx: ToolContext,
+  applied: Extract<ProposalApplication, { ok: true }>,
+  summary: string,
+): ToolOutcome {
   if (ctx.sceneState !== undefined) {
     ctx.sceneState.head = { spec: applied.spec, hash: applied.specHash };
   }
@@ -352,10 +381,72 @@ async function proposeScenePatch(
   return {
     ok: true,
     output:
-      ("ops" in proposal ? `Applied ${proposal.ops.length} operation(s). ` : `Created scene. `) +
+      summary +
       `Scene ${applied.specHash.slice(0, 12)} (${applied.nodeCount} nodes). ` +
       `Cite revision ${applied.specHash} as baseHash for the next patch.`,
   };
+}
+
+function deskError(error: { code: string; message: string }): string {
+  return `${error.code}: ${error.message}`;
+}
+
+async function proposeDesk(args: ProposeDesk, ctx: ToolContext): Promise<ToolOutcome> {
+  const events = await readSceneLog(ctx);
+  if (events === undefined) {
+    return { ok: false, output: "Scene history is unavailable in this runtime." };
+  }
+  if ("plan" in args) {
+    const built = buildDeskPlan(args.plan);
+    if (!built.ok) {
+      return reportRejectedProposal(ctx, built.error.code, deskError(built.error));
+    }
+    const promoted = promoteAssemblyToCreation({
+      assemblyId: "desk",
+      assemblyName: "Desk",
+      components: built.value.components.map((part) => part.spec),
+      // Fresh identity per creation, following revisions.ts. The seed is a
+      // fixed zero: identity lives in the uuid, and the engine ignores seeds.
+      specId: crypto.randomUUID(),
+      seed: 0,
+    });
+    if (!promoted.ok) {
+      return reportRejectedProposal(ctx, promoted.error.code, deskError(promoted.error));
+    }
+    const applied = applySceneProposal(effectiveHead(ctx, events), {
+      spec: promoted.value.spec,
+      rationale: args.rationale,
+    });
+    if (!applied.ok) {
+      return reportRejectedProposal(ctx, applied.code, applied.diagnostics);
+    }
+    return reportAppliedProposal(
+      ctx,
+      applied,
+      `Built a desk (${built.value.triangleCount} triangles). `,
+    );
+  }
+  const head = effectiveHead(ctx, events);
+  if (head === null) {
+    return { ok: false, output: "There is no scene yet. Describe the desk to create first." };
+  }
+  const replanned = replanDesk(head.spec, args.changes);
+  if (!replanned.ok) {
+    return reportRejectedProposal(ctx, replanned.error.code, deskError(replanned.error));
+  }
+  const applied = applySceneProposal(head, {
+    baseHash: args.baseHash,
+    ops: replanned.value.ops,
+    rationale: args.rationale,
+  });
+  if (!applied.ok) {
+    return reportRejectedProposal(ctx, applied.code, applied.diagnostics);
+  }
+  return reportAppliedProposal(
+    ctx,
+    applied,
+    `Applied ${replanned.value.ops.length} operation(s). `,
+  );
 }
 
 /**

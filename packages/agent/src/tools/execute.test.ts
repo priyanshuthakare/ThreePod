@@ -158,7 +158,7 @@ describe("executeTool — the call/result pair", () => {
   });
 
   it("emits nothing for a tool name the event log cannot represent", async () => {
-    // `tool.call` requires one of the eight names, so there is no honest event to write.
+    // `tool.call` requires one of the nine names, so there is no honest event to write.
     const result = await executeTool(call("delete_everything", {}), context());
 
     expect(result.ok).toBe(false);

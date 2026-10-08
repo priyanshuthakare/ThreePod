@@ -1,4 +1,6 @@
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { hashSceneSpec } from "@nap/scene-spec/revisions";
+import { towerSpec } from "@nap/scene-spec/tower";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { BuiltContext } from "@nap/shared/ports/context-engine";
@@ -8,8 +10,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { NapAgentService } from "./agent-service.ts";
 import { ScriptedLLMProvider, type ScriptedTurn } from "./testing/scripted-llm-provider.ts";
 import { PROJECT_ROOT, TOOL_DEFINITIONS } from "./tools/definitions.ts";
-import { hashSceneSpec } from "@nap/scene-spec/revisions";
-import { towerSpec } from "@nap/scene-spec/tower";
 
 /**
  * What a turn did, asserted through its events and its traffic — never through prose.
@@ -198,7 +198,7 @@ describe("runTurn — event ordering", () => {
 });
 
 describe("runTurn — talking to the model", () => {
-  it("declares the eight tools as the entire tool set", async () => {
+  it("declares the nine tools as the entire tool set", async () => {
     const { agent, provider } = service([[{ text: "Nothing to do." }]]);
 
     await agent.runTurn(request());
@@ -606,21 +606,23 @@ describe("runTurn — scene tools through a real turn", () => {
 
   it("reads, proposes, and emits scene.updated before the turn closes", async () => {
     const { agent } = service([
-      [{ toolCalls: [call("get_scene", {}, "toolu_1")] },
-       {
-         toolCalls: [
-           call(
-             "propose_scene_patch",
-             {
-               baseHash: GENESIS_HASH,
-               ops: [{ op: "set_param", nodeId: "base", key: "width", value: 2.4 }],
-               rationale: "Widen the base.",
-             },
-             "toolu_2",
-           ),
-         ],
-       },
-       { text: "Widened." }],
+      [
+        { toolCalls: [call("get_scene", {}, "toolu_1")] },
+        {
+          toolCalls: [
+            call(
+              "propose_scene_patch",
+              {
+                baseHash: GENESIS_HASH,
+                ops: [{ op: "set_param", nodeId: "base", key: "width", value: 2.4 }],
+                rationale: "Widen the base.",
+              },
+              "toolu_2",
+            ),
+          ],
+        },
+        { text: "Widened." },
+      ],
     ]);
 
     await agent.runTurn(sceneRequest());

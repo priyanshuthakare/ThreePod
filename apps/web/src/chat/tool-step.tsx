@@ -40,10 +40,11 @@ const VERBS: Record<ToolName, string> = {
   run_command: "Run",
   get_scene: "Read",
   propose_scene_patch: "Edit",
+  propose_desk: "Build",
 };
 
 /**
- * A shape per tool. A `Record` over the union rather than a lookup with a fallback, so a seventh
+ * A shape per tool. A `Record` over the union rather than a lookup with a fallback, so a tenth
  * tool fails typecheck here instead of rendering a row with a hole where its icon should be.
  */
 const ICONS: Record<ToolName, (props: IconProps) => React.ReactElement> = {
@@ -53,10 +54,11 @@ const ICONS: Record<ToolName, (props: IconProps) => React.ReactElement> = {
   list_files: ListIcon,
   search_files: SearchIcon,
   run_command: TerminalIcon,
-  // Reused, not invented: a scene read is an inspection and a patch is an edit,
-  // and new iconography for two tools is scope M2 does not have.
+  // Reused, not invented: a scene read is an inspection, a patch is an edit,
+  // and a desk build is an edit performed by the engine rather than by hand.
   get_scene: EyeIcon,
   propose_scene_patch: PencilIcon,
+  propose_desk: PencilIcon,
 };
 
 const STATUS_WORDS = {

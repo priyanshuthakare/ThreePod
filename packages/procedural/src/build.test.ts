@@ -148,6 +148,122 @@ describe("buildScene", () => {
     expect(min[2]).toBeLessThan(-0.99);
   });
 
+  it("builds a beveled box with 48 triangles and exact outer bounds", () => {
+    const spec = towerSpec();
+    const base = spec.nodes.find((node) => node.id === "base");
+    if (base?.kind !== "procedural" || base.op !== "box") throw new Error("fixture changed shape");
+    base.params = { ...base.params, bevel: 0.1 };
+    // The fixture base rides 0.5 m up the tower; recenter so the assertions
+    // read raw geometry rather than the tower placement.
+    base.transform = { position: [0, 0, 0], rotationEuler: [0, 0, 0], scale: [1, 1, 1] };
+    const single = {
+      ...spec,
+      nodes: spec.nodes.filter((node) => node.id === "base"),
+      root: "base",
+    };
+    const built = buildScene(single);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    // Six faces of 2x2 arc grids: 6 * 8. The bevel cuts inside, so the
+    // 2x1x2 outer dimensions — and the tower bounds test above — cannot move.
+    expect(built.value.triangleCount).toBe(48);
+    expect(closeTo(built.value.bounds.min[0], -1, 1e-9)).toBe(true);
+    expect(closeTo(built.value.bounds.max[0], 1, 1e-9)).toBe(true);
+    expect(closeTo(built.value.bounds.min[1], -0.5, 1e-9)).toBe(true);
+    expect(closeTo(built.value.bounds.max[1], 0.5, 1e-9)).toBe(true);
+    const mesh = built.value.meshes[0];
+    if (mesh === undefined) throw new Error("fixture built no mesh");
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      expect(Math.abs(mesh.positions[i] ?? 0)).toBeLessThanOrEqual(1 + 1e-12);
+    }
+  });
+
+  it("builds bevel 0 byte-identically to no bevel", () => {
+    const plain = towerSpec();
+    const zeroed = towerSpec();
+    const base = zeroed.nodes.find((node) => node.id === "base");
+    if (base?.kind !== "procedural" || base.op !== "box") throw new Error("fixture changed shape");
+    base.params = { ...base.params, bevel: 0 };
+    const a = buildScene(plain);
+    const b = buildScene(zeroed);
+    expect(a.ok && b.ok).toBe(true);
+    if (!a.ok || !b.ok) return;
+    expect(a.value.triangleCount).toBe(b.value.triangleCount);
+    for (const [meshA, meshB] of a.value.meshes.map(
+      (mesh, i) => [mesh, b.value.meshes[i]] as const,
+    )) {
+      expect(Array.from(meshA?.positions ?? [])).toEqual(Array.from(meshB?.positions ?? []));
+    }
+  });
+
+  it("winds the bevel outward with unit normals", () => {
+    const spec = towerSpec();
+    const base = spec.nodes.find((node) => node.id === "base");
+    if (base?.kind !== "procedural" || base.op !== "box") throw new Error("fixture changed shape");
+    base.params = { ...base.params, bevel: 0.1 };
+    base.transform = { position: [0, 0, 0], rotationEuler: [0, 0, 0], scale: [1, 1, 1] };
+    const single = {
+      ...spec,
+      nodes: spec.nodes.filter((node) => node.id === "base"),
+      root: "base",
+    };
+    const built = buildScene(single);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const mesh = built.value.meshes[0];
+    if (mesh === undefined) throw new Error("fixture built no mesh");
+    let volume = 0;
+    for (let i = 0; i < mesh.indices.length; i += 3) {
+      const a = (mesh.indices[i] ?? 0) * 3;
+      const b = (mesh.indices[i + 1] ?? 0) * 3;
+      const c = (mesh.indices[i + 2] ?? 0) * 3;
+      const ax = mesh.positions[a] ?? 0;
+      const ay = mesh.positions[a + 1] ?? 0;
+      const az = mesh.positions[a + 2] ?? 0;
+      const bx = mesh.positions[b] ?? 0;
+      const by = mesh.positions[b + 1] ?? 0;
+      const bz = mesh.positions[b + 2] ?? 0;
+      const cx = mesh.positions[c] ?? 0;
+      const cy = mesh.positions[c + 1] ?? 0;
+      const cz = mesh.positions[c + 2] ?? 0;
+      volume += ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx);
+    }
+    expect(volume).toBeGreaterThan(0);
+    const cx = (built.value.bounds.min[0] + built.value.bounds.max[0]) / 2;
+    const cy = (built.value.bounds.min[1] + built.value.bounds.max[1]) / 2;
+    const cz = (built.value.bounds.min[2] + built.value.bounds.max[2]) / 2;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      const nx = mesh.normals[i] ?? 0;
+      const ny = mesh.normals[i + 1] ?? 0;
+      const nz = mesh.normals[i + 2] ?? 0;
+      // float32 storage, so the same 1e-6 the sharp-box test allows.
+      expect(closeTo(Math.hypot(nx, ny, nz), 1, 1e-6)).toBe(true);
+      const outward =
+        nx * ((mesh.positions[i] ?? 0) - cx) +
+        ny * ((mesh.positions[i + 1] ?? 0) - cy) +
+        nz * ((mesh.positions[i + 2] ?? 0) - cz);
+      expect(outward).toBeGreaterThan(0.4);
+    }
+  });
+
+  it("builds beveled geometry bit-identically across runs", () => {
+    const spec = towerSpec();
+    const base = spec.nodes.find((node) => node.id === "base");
+    if (base?.kind !== "procedural" || base.op !== "box") throw new Error("fixture changed shape");
+    base.params = { ...base.params, bevel: 0.1 };
+    const first = buildScene(spec);
+    const second = buildScene(spec);
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(first.value.triangleCount).toBe(second.value.triangleCount);
+    for (const [meshA, meshB] of first.value.meshes.map(
+      (mesh, i) => [mesh, second.value.meshes[i]] as const,
+    )) {
+      expect(Array.from(meshA?.positions ?? [])).toEqual(Array.from(meshB?.positions ?? []));
+      expect(Array.from(meshA?.normals ?? [])).toEqual(Array.from(meshB?.normals ?? []));
+    }
+  });
+
   it("applies group transforms to children", () => {
     const spec = towerSpec();
     const root = spec.nodes.find((node) => node.id === "tower");

@@ -33,6 +33,7 @@ const LIVE_VERBS = {
   run_command: "Running",
   get_scene: "Reading",
   propose_scene_patch: "Editing",
+  propose_desk: "Building",
 } as const;
 
 export function StepGroupCard({ group }: { group: StepGroup }) {

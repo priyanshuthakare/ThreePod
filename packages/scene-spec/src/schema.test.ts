@@ -20,6 +20,56 @@ describe("validateSceneSpec", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("accepts an absent or zero box bevel as sharp", () => {
+    const plain = validateSceneSpec(towerSpec());
+    expect(plain.ok).toBe(true);
+    const spec = towerSpec();
+    const tampered = {
+      ...spec,
+      nodes: spec.nodes.map((node) =>
+        node.id === TOWER_MID_ID && node.kind === "procedural" && node.op === "box"
+          ? { ...node, params: { ...node.params, bevel: 0.1 } }
+          : node,
+      ),
+    };
+    expect(validateSceneSpec(tampered).ok).toBe(true);
+  });
+
+  it("rejects a negative box bevel", () => {
+    const spec = towerSpec();
+    const tampered = {
+      ...spec,
+      nodes: spec.nodes.map((node) =>
+        node.id === TOWER_MID_ID && node.kind === "procedural" && node.op === "box"
+          ? { ...node, params: { ...node.params, bevel: -0.1 } }
+          : node,
+      ),
+    };
+    const result = validateSceneSpec(tampered);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("invalid_schema");
+  });
+
+  it("rejects a bevel larger than half the smallest box dimension", () => {
+    // The middle slab is 1.4 x 1 x 1.4: a 0.6 bevel would swallow the 1 m
+    // height twice over and invert the corner patches.
+    const spec = towerSpec();
+    const tampered = {
+      ...spec,
+      nodes: spec.nodes.map((node) =>
+        node.id === TOWER_MID_ID && node.kind === "procedural" && node.op === "box"
+          ? { ...node, params: { ...node.params, bevel: 0.6 } }
+          : node,
+      ),
+    };
+    const result = validateSceneSpec(tampered);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("invalid_schema");
+      expect(result.error.message).toMatch(/bevel/);
+    }
+  });
+
   it("rejects non-finite dimensions", () => {
     for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
       const spec = towerSpec();

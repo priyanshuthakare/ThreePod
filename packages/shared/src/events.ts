@@ -22,7 +22,12 @@
 import { z } from "zod";
 import { CheckOutcomeSchema } from "./check-outcome.ts";
 
-/** The six sandbox-proxy tools, plus the two scene tools. Nothing else may appear in the log. */
+/**
+ * The six sandbox-proxy tools, the two scene tools, and the desk builder.
+ * Nothing else may appear in the log. `propose_desk` is the one tool that
+ * constructs geometry from typed parameters rather than relaying a
+ * hand-written spec — its inputs are validated plans, never code.
+ */
 export const TOOL_NAMES = [
   "read_file",
   "write_file",
@@ -32,6 +37,7 @@ export const TOOL_NAMES = [
   "run_command",
   "get_scene",
   "propose_scene_patch",
+  "propose_desk",
 ] as const;
 
 export const ToolNameSchema = z.enum(TOOL_NAMES);

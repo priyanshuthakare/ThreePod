@@ -1,8 +1,14 @@
 import { buildScene } from "@nap/procedural/build";
 import { towerSpec } from "@nap/scene-spec/tower";
 import { fireEvent, render, screen } from "@testing-library/react";
+import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
-import { type RendererHandle, SceneView } from "./scene-view.tsx";
+import {
+  configureRenderer,
+  type RendererHandle,
+  SceneView,
+  VIEWPORT_EXPOSURE,
+} from "./scene-view.tsx";
 
 function towerBuilt() {
   const built = buildScene(towerSpec());
@@ -44,6 +50,35 @@ function mountWithRect() {
   });
   return { canvas, onSelect };
 }
+
+describe("configureRenderer", () => {
+  function stubRenderer() {
+    return {
+      outputColorSpace: "",
+      toneMapping: -1,
+      toneMappingExposure: -1,
+      shadowMap: { enabled: false, type: -1 },
+    } as unknown as THREE.WebGLRenderer;
+  }
+
+  it("establishes the one color pipeline: sRGB out, ACES tone mapping, pinned exposure", () => {
+    const renderer = stubRenderer();
+    configureRenderer(renderer);
+
+    expect(renderer.outputColorSpace).toBe(THREE.SRGBColorSpace);
+    expect(renderer.toneMapping).toBe(THREE.ACESFilmicToneMapping);
+    expect(renderer.toneMappingExposure).toBe(VIEWPORT_EXPOSURE);
+    expect(VIEWPORT_EXPOSURE).toBe(1.0);
+  });
+
+  it("enables soft shadow maps for the studio key light", () => {
+    const renderer = stubRenderer();
+    configureRenderer(renderer);
+
+    expect(renderer.shadowMap.enabled).toBe(true);
+    expect(renderer.shadowMap.type).toBe(THREE.PCFSoftShadowMap);
+  });
+});
 
 describe("SceneView picking", () => {
   it("selects the mesh under a completed primary click", () => {

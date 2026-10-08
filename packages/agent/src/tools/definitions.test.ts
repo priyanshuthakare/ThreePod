@@ -33,15 +33,14 @@ describe("TOOL_DEFINITIONS", () => {
     expect(definition?.description.length).toBeGreaterThan(40);
   });
 
-  it.each([...TOOL_NAMES].filter((name) => name !== "propose_scene_patch"))(
-    "%s is an object schema that rejects unknown keys",
-    (name) => {
-      const schema = schemaFor(name);
-      expect(schema.type).toBe("object");
-      // Without this the model can invent arguments and they arrive silently ignored.
-      expect(schema.additionalProperties).toBe(false);
-    },
-  );
+  it.each(
+    [...TOOL_NAMES].filter((name) => name !== "propose_scene_patch" && name !== "propose_desk"),
+  )("%s is an object schema that rejects unknown keys", (name) => {
+    const schema = schemaFor(name);
+    expect(schema.type).toBe("object");
+    // Without this the model can invent arguments and they arrive silently ignored.
+    expect(schema.additionalProperties).toBe(false);
+  });
 
   it("propose_scene_patch is a union of strict edit and creation variants", () => {
     const schema = schemaFor("propose_scene_patch") as unknown as {
@@ -59,6 +58,23 @@ describe("TOOL_DEFINITIONS", () => {
     });
     expect(requiredSets).toContainEqual(["baseHash", "ops", "rationale"]);
     expect(requiredSets).toContainEqual(["rationale", "spec"]);
+  });
+
+  it("propose_desk is a union of strict plan and changes variants", () => {
+    const schema = schemaFor("propose_desk") as unknown as {
+      anyOf: { type: string; required?: string[]; additionalProperties?: boolean }[];
+    };
+    expect(Array.isArray(schema.anyOf)).toBe(true);
+    expect(schema.anyOf).toHaveLength(2);
+    // Same discipline as the patch tool: a creation carries a plan, an edit
+    // carries a base hash and changes, and both stay strict.
+    const requiredSets = schema.anyOf.map((variant) => {
+      expect(variant.type).toBe("object");
+      expect(variant.additionalProperties).toBe(false);
+      return [...(variant.required ?? [])].sort();
+    });
+    expect(requiredSets).toContainEqual(["plan", "rationale"]);
+    expect(requiredSets).toContainEqual(["baseHash", "changes", "rationale"]);
   });
 
   it.each([

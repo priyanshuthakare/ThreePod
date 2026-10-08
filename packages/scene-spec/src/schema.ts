@@ -61,11 +61,33 @@ function dimension() {
     });
 }
 
-export const BoxParamsSchema = z.strictObject({
-  width: dimension(),
-  height: dimension(),
-  depth: dimension(),
-});
+export const BoxParamsSchema = z
+  .strictObject({
+    width: dimension(),
+    height: dimension(),
+    depth: dimension(),
+    /**
+     * Edge bevel radius in meters, cut *inside* the stated dimensions: a
+     * beveled box occupies exactly the same bounds as a sharp one, so edits
+     * never move a wall by softening its edge. Absent or 0 is sharp. Capped
+     * at half the smallest dimension — past that the corner patches would
+     * swallow each other and invert.
+     */
+    bevel: finiteNumber().min(0).max(MAX_DIMENSION_M).optional(),
+  })
+  // `superRefine` rather than `refine`, because the message has to name the
+  // bound it was checked against, and only this form is handed the value.
+  .superRefine((params, ctx) => {
+    const bevel = params.bevel ?? 0;
+    const limit = Math.min(params.width, params.height, params.depth) / 2;
+    if (bevel > limit) {
+      ctx.addIssue({
+        code: "custom",
+        message: `bevel must be at most half the smallest dimension (${limit} m)`,
+        path: ["bevel"],
+      });
+    }
+  });
 export type BoxParams = z.infer<typeof BoxParamsSchema>;
 
 export const CylinderParamsSchema = z.strictObject({

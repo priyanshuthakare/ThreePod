@@ -29,6 +29,37 @@ describe("applyPatch", () => {
     }
   });
 
+  it("edits a box bevel", () => {
+    const spec = towerSpec();
+    const result = applyPatch(
+      spec,
+      patchFor(hashSceneSpec(spec), [
+        { op: "set_param", nodeId: TOWER_BASE_ID, key: "bevel", value: 0.1 },
+      ]),
+      hashSceneSpec(spec),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const base = result.value.nodes.find((node) => node.id === TOWER_BASE_ID);
+    expect(base?.kind).toBe("procedural");
+    if (base?.kind === "procedural" && base.op === "box") {
+      expect(base.params.bevel).toBe(0.1);
+    }
+  });
+
+  it("rejects a bevel past half the smallest dimension", () => {
+    const spec = towerSpec();
+    const result = applyPatch(
+      spec,
+      patchFor(hashSceneSpec(spec), [
+        { op: "set_param", nodeId: TOWER_BASE_ID, key: "bevel", value: 5 },
+      ]),
+      hashSceneSpec(spec),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("invalid_result");
+  });
+
   it("rejects a stale base revision", () => {
     const spec = towerSpec();
     const result = applyPatch(

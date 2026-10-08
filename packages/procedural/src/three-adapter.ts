@@ -11,22 +11,41 @@
 
 import * as THREE from "three";
 import type { BuiltMesh, BuiltScene } from "./build.ts";
+import { resolveMaterial } from "./material.ts";
+
+/**
+ * Color-space rules for the (future) texture path, stated where textures will
+ * upload. Base color / albedo is color data and uploads as sRGB; roughness,
+ * metalness, AO, normal and similar maps are data and upload linear. The core
+ * carries no textures yet — these constants exist so the first texture upload
+ * cannot pick the wrong default silently. See `material.ts` for the contract.
+ */
+export const ALBEDO_COLOR_SPACE = THREE.SRGBColorSpace;
+export const DATA_COLOR_SPACE = THREE.NoColorSpace;
 
 function meshToObject(mesh: BuiltMesh): THREE.Mesh {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(mesh.positions, 3));
   geometry.setAttribute("normal", new THREE.BufferAttribute(mesh.normals, 3));
   geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+  const resolved = resolveMaterial(mesh.material);
   const material = new THREE.MeshStandardMaterial({
-    color: mesh.material.color,
-    metalness: mesh.material.metalness,
-    roughness: mesh.material.roughness,
+    // A hex string enters `THREE.Color` as sRGB and converts to the linear
+    // working space under the default-enabled ColorManagement — the single
+    // conversion the pipeline performs, so colors match the spec exactly.
+    color: resolved.colorHex,
+    metalness: resolved.metalness,
+    roughness: resolved.roughness,
     name: mesh.material.name,
   });
   const object = new THREE.Mesh(geometry, material);
   object.name = mesh.nodeId;
   // The display name is for humans; the stable id is what selection addresses.
   object.userData = { nodeId: mesh.nodeId, displayName: mesh.name };
+  // Every procedural mesh both casts and receives: the studio key light draws
+  // contact shadows from these flags, and self-shadowing needs both sides.
+  object.castShadow = true;
+  object.receiveShadow = true;
   return object;
 }
 

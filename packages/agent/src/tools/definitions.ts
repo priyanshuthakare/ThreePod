@@ -2,9 +2,10 @@
  * What the model is told it can do.
  *
  * The SDK's built-in file and shell tools act on this API server's filesystem, not on the
- * user's sandbox, so they stay disabled and these eight take their place. Six of them
+ * user's sandbox, so they stay disabled and these nine take their place. Six of them
  * proxy to `SandboxManager`; the two scene tools read and validate 3D scene state
- * in-process instead — nothing else reaches the project.
+ * in-process instead, and the desk tool builds one object family deterministically —
+ * nothing else reaches the project.
  *
  * Argument shapes are Zod schemas, and the JSON Schema the model sees is derived from them
  * rather than written beside them. That is the only way the thing validating a tool call and
@@ -20,6 +21,7 @@ import { AnySceneProposalSchema } from "@nap/scene-spec/proposal";
 import { TOOL_NAMES, type ToolName } from "@nap/shared/events";
 import type { LLMToolDefinition } from "@nap/shared/ports/llm-provider";
 import { z } from "zod";
+import { ProposeDeskSchema } from "./desk.ts";
 
 /**
  * Where the generated app lives inside the sandbox.
@@ -60,6 +62,10 @@ export const TOOL_SCHEMAS = {
   // widened operation cannot reach the log while the tool still describes the old set.
   // The union covers edits and genesis creation alike; the validator routes by shape.
   propose_scene_patch: AnySceneProposalSchema,
+  // Like the patch tool beside it, the contract lives with the thing that
+  // validates it: the schema the model sees and the shapes the handler
+  // accepts are one definition in desk.ts.
+  propose_desk: ProposeDeskSchema,
 } satisfies Record<ToolName, z.ZodType>;
 
 const DESCRIPTIONS: Record<ToolName, string> = {
@@ -79,6 +85,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "Read the current 3D scene before proposing any geometry change. Call this first when the user asks about the model: it lists every node with its parameters and the revision hash your patch must cite.",
   propose_scene_patch:
     "Propose a 3D scene edit as a patch against the hash get_scene returned, or a complete new scene when get_scene reports no scene yet. Prefer this over describing geometry in prose: the proposal is validated before anything changes, and a rejection tells you exactly what to fix. Never invent a baseHash — re-read the scene when told yours is stale.",
+  propose_desk:
+    "Build a walnut, oak, or maple desk from typed dimensions when the user asks for a desk or table: tops, legs, and aprons are placed and validated deterministically, so prefer this over hand-computing scene coordinates. For follow-up desk edits — wider, taller, a material swap — call it again with the revision hash get_scene returned and only the changes; legs and aprons follow automatically.",
 };
 
 /** Strips the dialect marker: it is noise on every request and buys the model nothing. */

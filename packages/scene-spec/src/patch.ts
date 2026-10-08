@@ -89,7 +89,7 @@ export type PatchError = {
  * internal field from silently becoming a no-op edit.
  */
 const EDITABLE_PARAMS: Record<string, readonly string[]> = {
-  box: ["width", "height", "depth"],
+  box: ["width", "height", "depth", "bevel"],
   cylinder: ["radiusTop", "radiusBottom", "height", "radialSegments", "heightSegments"],
 };
 

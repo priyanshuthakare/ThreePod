@@ -282,6 +282,121 @@ function boxGeometry(width: number, height: number, depth: number): RawMesh {
   return { positions, normals, indices };
 }
 
+/**
+ * Arc resolution of the bevel, fixed by the engine rather than the scene: bevel
+ * quality is an implementation detail the agent never addresses, so every
+ * beveled box costs the same 48 triangles (six faces of 2x2 arc grids) and an
+ * LLM cannot propose a degenerate 200-segment edge.
+ */
+const BEVEL_ARC_SEGMENTS = 2;
+
+/**
+ * Rounded box with the bevel cut *inside* the stated dimensions: the outer
+ * bounds are exactly width/height/depth, so softening an edge never moves a
+ * wall. Each face is the same corner-ordered quad `boxGeometry` uses,
+ * subdivided into arc grids and projected onto the inner box
+ * (half-extents shrunk by the bevel) plus a bevel-radius offset along the
+ * projection normal. The projection is the closest-point map onto a convex
+ * set, which cannot fold — orientation, and therefore winding, survives it.
+ *
+ * Normals are analytic (projection direction, unit by construction) rather
+ * than averaged, so the highlight rolls smoothly across the arc instead of
+ * faceting. Only called with bevel > 0: at exactly 0 the projection
+ * degenerates (zero-length direction), which is why sharp boxes keep the
+ * 24-vertex path above byte-identically.
+ */
+function roundedBoxGeometry(width: number, height: number, depth: number, bevel: number): RawMesh {
+  const hx = width / 2;
+  const hy = height / 2;
+  const hz = depth / 2;
+  const ix = hx - bevel;
+  const iy = hy - bevel;
+  const iz = hz - bevel;
+  // Same corner order as boxGeometry, so the same triangulation winds outward.
+  const faces: [Vec3, Vec3, Vec3, Vec3][] = [
+    [
+      [hx, -hy, hz],
+      [hx, -hy, -hz],
+      [hx, hy, -hz],
+      [hx, hy, hz],
+    ],
+    [
+      [-hx, -hy, -hz],
+      [-hx, -hy, hz],
+      [-hx, hy, hz],
+      [-hx, hy, -hz],
+    ],
+    [
+      [-hx, hy, hz],
+      [hx, hy, hz],
+      [hx, hy, -hz],
+      [-hx, hy, -hz],
+    ],
+    [
+      [-hx, -hy, -hz],
+      [hx, -hy, -hz],
+      [hx, -hy, hz],
+      [-hx, -hy, hz],
+    ],
+    [
+      [-hx, -hy, hz],
+      [hx, -hy, hz],
+      [hx, hy, hz],
+      [-hx, hy, hz],
+    ],
+    [
+      [hx, -hy, -hz],
+      [-hx, -hy, -hz],
+      [-hx, hy, -hz],
+      [hx, hy, -hz],
+    ],
+  ];
+  const clamp = (value: number, lo: number, hi: number): number =>
+    Math.min(hi, Math.max(lo, value));
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const indices: number[] = [];
+  for (const [c0, c1, c2, c3] of faces) {
+    const base = positions.length / 3;
+    for (let j = 0; j <= BEVEL_ARC_SEGMENTS; j++) {
+      for (let i = 0; i <= BEVEL_ARC_SEGMENTS; i++) {
+        const s = i / BEVEL_ARC_SEGMENTS;
+        const t = j / BEVEL_ARC_SEGMENTS;
+        const px =
+          c0[0] * (1 - s) * (1 - t) + c1[0] * s * (1 - t) + c2[0] * s * t + c3[0] * (1 - s) * t;
+        const py =
+          c0[1] * (1 - s) * (1 - t) + c1[1] * s * (1 - t) + c2[1] * s * t + c3[1] * (1 - s) * t;
+        const pz =
+          c0[2] * (1 - s) * (1 - t) + c1[2] * s * (1 - t) + c2[2] * s * t + c3[2] * (1 - s) * t;
+        const qx = clamp(px, -ix, ix);
+        const qy = clamp(py, -iy, iy);
+        const qz = clamp(pz, -iz, iz);
+        const dx = px - qx;
+        const dy = py - qy;
+        const dz = pz - qz;
+        // Never zero: the face plane stands a full bevel outside the inner box
+        // along its own axis, so the direction always has that component.
+        const length = Math.hypot(dx, dy, dz);
+        const nx = dx / length;
+        const ny = dy / length;
+        const nz = dz / length;
+        positions.push(qx + nx * bevel, qy + ny * bevel, qz + nz * bevel);
+        normals.push(nx, ny, nz);
+      }
+    }
+    for (let j = 0; j < BEVEL_ARC_SEGMENTS; j++) {
+      for (let i = 0; i < BEVEL_ARC_SEGMENTS; i++) {
+        const a = base + j * (BEVEL_ARC_SEGMENTS + 1) + i;
+        const b = a + 1;
+        const c = a + BEVEL_ARC_SEGMENTS + 1;
+        const d = c + 1;
+        indices.push(a, b, d, a, d, c);
+      }
+    }
+  }
+  return { positions, normals, indices };
+}
+
 /** Capped or open cylinder along Y, centered at the origin. */
 function cylinderGeometry(
   radiusTop: number,
@@ -386,7 +501,13 @@ export function buildScene(spec: SceneSpec): Result<BuiltScene, BuildError> {
 
     let raw: RawMesh;
     if (node.op === "box") {
-      raw = boxGeometry(node.params.width, node.params.height, node.params.depth);
+      // A missing or zero bevel keeps the sharp 24-vertex path, so every
+      // existing scene builds byte-identically to before bevels existed.
+      const bevel = node.params.bevel ?? 0;
+      raw =
+        bevel > 0
+          ? roundedBoxGeometry(node.params.width, node.params.height, node.params.depth, bevel)
+          : boxGeometry(node.params.width, node.params.height, node.params.depth);
     } else if (node.op === "cylinder") {
       raw = cylinderGeometry(
         node.params.radiusTop,

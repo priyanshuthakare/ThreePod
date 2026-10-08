@@ -33,6 +33,7 @@ const DOING: Record<ToolName, string> = {
   run_command: "Running",
   get_scene: "Reading",
   propose_scene_patch: "Editing",
+  propose_desk: "Building",
 };
 
 /** Paths are absolute in the sandbox; the project root is noise in every single line. */

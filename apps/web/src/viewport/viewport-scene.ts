@@ -57,11 +57,54 @@ export function createViewportScene(built: BuiltScene, canvas: HTMLCanvasElement
   const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
   frameCamera(camera, built.bounds);
 
-  const hemisphere = new THREE.HemisphereLight(0xffffff, 0x223044, 0.9);
+  // Three-point studio rig, sized to the scene rather than fixed: a fixed
+  // light is right for exactly one scene size, and every other scene gets
+  // either flat frontal light or blown-out hotspots. Ratios follow the studio
+  // convention — the key dominates at roughly 4x the fill so form reads while
+  // shadows stay open, and the rim separates edges from the background.
+  const center = new THREE.Vector3(
+    (built.bounds.min[0] + built.bounds.max[0]) / 2,
+    (built.bounds.min[1] + built.bounds.max[1]) / 2,
+    (built.bounds.min[2] + built.bounds.max[2]) / 2,
+  );
+  const maxDim = Math.max(
+    built.bounds.max[0] - built.bounds.min[0],
+    built.bounds.max[1] - built.bounds.min[1],
+    built.bounds.max[2] - built.bounds.min[2],
+    0.001,
+  );
+  const place = (direction: THREE.Vector3): THREE.Vector3 =>
+    center.clone().addScaledVector(direction.normalize(), maxDim * 2);
+
+  const hemisphere = new THREE.HemisphereLight(0xffffff, 0x8b8f96, 0.5);
   scene.add(hemisphere);
-  const key = new THREE.DirectionalLight(0xffffff, 1.6);
-  key.position.set(4, 8, 5);
+
+  const key = new THREE.DirectionalLight(0xfff2e2, 2.4);
+  key.position.copy(place(new THREE.Vector3(0.55, 0.75, 0.45)));
+  // The target must be in the scene or its transform never updates and the
+  // light silently aims at the origin instead of the scene center.
+  key.target.position.copy(center);
+  scene.add(key.target);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.camera.left = -maxDim * 1.2;
+  key.shadow.camera.right = maxDim * 1.2;
+  key.shadow.camera.top = maxDim * 1.2;
+  key.shadow.camera.bottom = -maxDim * 1.2;
+  key.shadow.camera.near = maxDim * 0.5;
+  key.shadow.camera.far = maxDim * 6;
+  key.shadow.camera.updateProjectionMatrix();
+  key.shadow.bias = -0.0004;
+  key.shadow.normalBias = 0.02;
   scene.add(key);
+
+  const fill = new THREE.DirectionalLight(0xdfe8ff, 0.55);
+  fill.position.copy(place(new THREE.Vector3(-0.7, 0.35, -0.6)));
+  scene.add(fill);
+
+  const rim = new THREE.DirectionalLight(0xffffff, 0.9);
+  rim.position.copy(place(new THREE.Vector3(0.1, 0.6, -1)));
+  scene.add(rim);
 
   const gridExtent = Math.max(
     built.bounds.max[0] - built.bounds.min[0],
@@ -71,6 +114,18 @@ export function createViewportScene(built: BuiltScene, canvas: HTMLCanvasElement
   const grid = new THREE.GridHelper(Math.ceil(gridExtent * 2), 20, 0x3a4356, 0x232a3a);
   grid.position.y = Math.min(built.bounds.min[1], 0);
   scene.add(grid);
+
+  // The contact shadow's floor: transparent everywhere except where the key
+  // light is blocked, so form gains depth without adding a visible surface.
+  // It sits a hair below the grid to never z-fight the grid lines.
+  const catcher = new THREE.Mesh(
+    new THREE.CircleGeometry(maxDim * 2, 48),
+    new THREE.ShadowMaterial({ opacity: 0.18 }),
+  );
+  catcher.rotation.x = -Math.PI / 2;
+  catcher.position.y = Math.min(built.bounds.min[1], 0) - maxDim * 0.002;
+  catcher.receiveShadow = true;
+  scene.add(catcher);
   const axes = new THREE.AxesHelper(Math.max(gridExtent / 4, 1));
   scene.add(axes);
 

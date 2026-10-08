@@ -31,10 +31,33 @@ export type RendererHandle = {
   dispose: () => void;
 };
 
+/**
+ * The workbench exposure, pinned by test. Neutral 1.0: the studio rig's light
+ * levels are authored against it, so drifting here would silently re-grade
+ * every scene. (The landing hero uses its own brighter presentation value;
+ * that page is not this workbench.)
+ */
+export const VIEWPORT_EXPOSURE = 1.0;
+
+/**
+ * The one color pipeline, established in one place: linear working space in,
+ * sRGB with ACES tone mapping out, soft shadows on. Every viewport that draws
+ * a built scene calls this — the adapter's sRGB material colors only read
+ * correctly when the output end holds up its half of the contract.
+ */
+export function configureRenderer(renderer: THREE.WebGLRenderer): void {
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = VIEWPORT_EXPOSURE;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+}
+
 export function defaultCreateRenderer(canvas: HTMLCanvasElement): RendererHandle | null {
   try {
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    configureRenderer(renderer);
     return {
       render: (scene, camera) => renderer.render(scene, camera),
       setSize: (width, height) => renderer.setSize(width, height, false),
